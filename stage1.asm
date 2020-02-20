@@ -1,14 +1,17 @@
 ; Bootloader Stage 1
 
-%define STAGE1_STACKSEG      0x2000
-%define STAGE1_BPBEND        0x3e
-%define STAGE1_BIOS_HD_FLAG  0x80
-%define STAGE1_SIGNATURE     0xaa55
-%define STAGE1_PARTEND		 0x1fe
-%define STAGE1_DISK_BUFFER   0x7000
-%define STAGE2_SECTOR  0x01
-%define STAGE2_SEGMENT 0x800
-%define STAGE2_ADDRESS 0x8000
+%define STAGE1_STACKSEG         0x2000
+%define STAGE1_BPBEND           0x3e
+%define STAGE1_BIOS_HD_FLAG     0x80
+%define STAGE1_SIGNATURE        0xaa55
+%define STAGE1_WINDOWS_NT_MAGIC	0x1b8
+%define STAGE1_PARTSTART	    0x1be
+%define STAGE1_PARTEND		    0x1fe
+%define STAGE1_DISK_BUFFER      0x7000
+
+%define STAGE2_SECTOR           0x01
+%define STAGE2_SEGMENT          0x800
+%define STAGE2_ADDRESS          0x8000
 
 %define ABS(x) (x-_start+0x7c00)
 %macro MSG 1
@@ -113,21 +116,20 @@ chs_mode:
     ; reset floppy
     .Reset:
 	mov		ah, 0					; reset floppy disk function
-	mov		dl, 0					; drive 0 is floppy drive
 	int		0x13					; call BIOS
 	jc		.Reset					; If Carry Flag (CF) is set, there was an error. Try resetting again
 
     mov ah, 0x08
     int 0x13
-	jnc	.floppy_init
+	jnc	floppy_init
 
     test dl, STAGE1_BIOS_HD_FLAG
-	;jz	floppy_probe
+	jz	floppy_probe
 
 	; Nope, we definitely have a hard disk, and we're screwed.
 	jmp	hd_probe_error
 
-    .floppy_init:
+    floppy_init:
 
     ; get number of heads
     xor eax, eax
@@ -144,7 +146,6 @@ chs_mode:
     inc ax               ; (because index starts with 0)
     mov [cylinders], ax  ; save number of cylinders
 
-    ; get number of sectors
     xor ax, ax
     mov al, dl          ; number of sectors is
     shr al, 2           ; first 6 bits of dl
@@ -236,6 +237,12 @@ general_error:
 
 stop: jmp stop
 
+notification_string:	db "Booting OS...", 0
+geometry_error_string:	db "Geom", 0
+hd_probe_error_string:	db "Hard Disk", 0
+read_error_string:	db "Read", 0
+general_error_string:	db " Error", 0
+
 ; message: write the string pointed to by %si
 ;   WARNING: trashes %si, %ax, and %bx
 _message:
@@ -263,11 +270,53 @@ _creturn:
     int 0x10
     ret
 
-notification_string:	db "Booting OS...", 0
-geometry_error_string:	db "Geom", 0
-hd_probe_error_string:	db "Hard Disk", 0
-read_error_string:	db "Read", 0
-general_error_string:	db " Error", 0
+times STAGE1_WINDOWS_NT_MAGIC-($-$$) db 0
+nt_magic:
+	dd 0
+    dw 0
+
+part_start:
+    times STAGE1_PARTSTART-($-$$) db 0
+probe_values:
+	db	36, 18, 15, 9, 0
+
+floppy_probe:
+    ; Perform floppy probe.
+    mov si, (probe_values - 1)
+; 	movw	$ABS(probe_values-1), %si
+;
+probe_loop:
+    ; reset floppy controller INT 13h AH=0
+    xor ax, ax
+    int 0x13
+
+    inc si
+    mov cl, [si]
+
+; 	/* if number of sectors is 0, display error and die */
+    cmp cl, 0
+    jne probe_read
+
+    ; Floppy disk probe failure.
+ 	MSG(fd_probe_error_string)
+ 	jmp	general_error
+
+fd_probe_error_string:	db "Floppy", 0
+
+probe_read:
+    ; perform read
+    mov bx, STAGE2_SEGMENT
+    mov ax, 0x0201
+    mov ch, 0x0
+    mov dh, 0x0
+    int 0x13
+    ; if error, jump to "probe_loop"
+ 	jc	probe_loop
+
+    ; %cl is already the correct value!
+    mov dh, 1
+    mov ch, 79
+ 	jmp	floppy_init
 
 times STAGE1_PARTEND-($-$$) db 0
 dw STAGE1_SIGNATURE
