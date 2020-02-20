@@ -91,8 +91,15 @@ lba_mode:
                                          ; Memory address to read data to: segment:offset
     push word STAGE2_SEGMENT             ; segment
     push word 0x0                        ; offset
-    push word 0x1                     ; Number of sectors to read (1)
-    push word 0x10                     ; Reserved byte and Packet Size (16 bytes)
+    push word 0x1                        ; Number of sectors to read (1)
+    push word 0x10                       ; Reserved byte and Packet Size (16 bytes)
+
+    ;   BIOS call "INT 0x13 Function 0x42" to read sectors from disk into memory
+    ;	Call with	%ah = 0x42
+    ;			%dl = drive number
+    ;			%ds:%si = segment:offset of disk address packet
+    ;	Return:
+    ;			%al = 0x0 on success; err code on failure
 
     mov ah, 0x42                         ; Extended read function
     mov si, sp                           ; Point SI to stack
@@ -110,21 +117,84 @@ chs_mode:
 	int		0x13					; call BIOS
 	jc		.Reset					; If Carry Flag (CF) is set, there was an error. Try resetting again
 
+    mov ah, 0x08
+    int 0x13
+	jnc	.floppy_init
+
+    .floppy_init:
+
+    ; get number of heads
+    xor eax, eax
+    mov al, dh      ;   logical last index of heads = number_of - 1
+    inc ax          ;   (because index starts with 0)
+    mov [heads], ax ; save number of heads
+
+    ; get number of cylinders
+    xor dx, dx
+    mov dl, cl           ; logical last index of cylinders
+    shl dx, 2            ; stored in dh + 2 high bits of dl
+    mov al, ch
+    mov ah, dh
+    inc ax               ; (because index starts with 0)
+    mov [cylinders], ax  ; save number of cylinders
+
+    ; get number of sectors
+    xor ax, ax
+    mov al, dl          ; number of sectors is
+    shr al, 2           ; first 6 bits of dl
+    mov [sectors], ax   ; save number of sectors
+
+    .setup:
+    xor edx, edx
+    mov eax, STAGE2_SECTOR  ; load LBA sector
+
+    mov ebx, [sectors]
+    div ebx                 ; divide by number of sectors
+
+    mov [sector_start], dl  ; save sector start
+
+    xor edx, edx
+    mov ebx, [heads]
+    div ebx                 ; divide by number of heads
+
+    mov [head_start], dl    ; save head start
+    mov [cylinder_start], ax; save cylinder start
+
+	; check that we have that many cylinders
+    cmp ax, [cylinders]
+	jge	geometry_error
+
+    ; This is where we taking care of BIOS geometry translation
+
+    mov dl, [cylinder_start]
+    and dl, 0xf0                ; get high bits of cylinder
+    shl dl, 6                   ; shift left by 6 bits
+    mov cl, [sector_start]      ; get sector
+    inc cl                      ; normalize sector (sectors go from 1-N, not 0-(N-1) )
+    or cl, dl                   ; composite together
+    mov ch, [cylinder_start]    ; sector+hcyl in cl, cylinder in ch
+
+    pop dx                      ; restore disk id in dl
+    mov dh, [head_start]        ; head number
+
+    ;   BIOS call "INT 0x13 Function 0x2" to read sectors from disk into memory
+    ;	Call with
+    ;           %ah = 0x2
+    ;			%al = number of sectors
+    ;			%ch = cylinder
+    ;			%cl = sector (bits 6-7 are high bits of "cylinder")
+    ;			%dh = head
+    ;			%dl = drive (0x80 for hard disk, 0x0 for floppy disk)
+    ;			%es:%bx = segment:offset of buffer
+    ;	Return:
+    ;			%al = 0x0 on success; err code on failure
     mov bx, STAGE2_SEGMENT
     mov es, bx
     xor bx, bx
 
-    mov ah, 0x2     ; function
-    mov al, 0x1     ; number of sectors
-    mov dh, 0x0     ; sector number
-    mov ch, 0x0     ; cylinder number
-
-    mov cl, STAGE2_SECTOR ; sector
-    add cl, 0x1           ; LBA sectors start with 0, CHS sectors start with 1
-                          ; so, increment LBA sector
+    mov ax, 0x0201  ; function + number of sectors to read
     int 0x13
-
-    jc disc_error
+    jc read_error
 
 copy_buffer:
     MSG(finish_notification_msg)
@@ -146,9 +216,12 @@ copy_buffer:
     ;jump to stage 2 (which is stage1.5 actually)
     jmp 0x0:STAGE2_ADDRESS
 
+geometry_error:
+    MSG(geometry_error_msg)
+    jmp stop
 
-disc_error:
-    MSG(disk_error_msg)
+read_error:
+    MSG(read_error_msg)
 
 stop: jmp stop
 
@@ -181,7 +254,8 @@ _creturn:
 
 notification_msg: db 'Booting OS...', 0
 finish_notification_msg: db 'Stage 1 Complete', 0
-disk_error_msg: db 'Read error', 0
+read_error_msg: db 'Read error', 0
+geometry_error_msg: db 'Geometry error', 0
 
 
 times STAGE1_PARTEND-($-$$) db 0
