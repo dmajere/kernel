@@ -62,7 +62,7 @@ main:
     ; save device id
     push dx
 
-    MSG(notification_msg)
+    MSG(notification_string)
 
     ; do not probe LBA if the drive is a floppy
     test dl, STAGE1_BIOS_HD_FLAG
@@ -120,6 +120,12 @@ chs_mode:
     mov ah, 0x08
     int 0x13
 	jnc	.floppy_init
+
+    test dl, STAGE1_BIOS_HD_FLAG
+	;jz	floppy_probe
+
+	; Nope, we definitely have a hard disk, and we're screwed.
+	jmp	hd_probe_error
 
     .floppy_init:
 
@@ -197,8 +203,6 @@ chs_mode:
     jc read_error
 
 copy_buffer:
-    MSG(finish_notification_msg)
-
 	; We need to save %cx and %si because the startup code in
 	; stage2 uses them without initializing them.
     pusha
@@ -216,12 +220,19 @@ copy_buffer:
     ;jump to stage 2 (which is stage1.5 actually)
     jmp 0x0:STAGE2_ADDRESS
 
+hd_probe_error:
+	MSG(hd_probe_error_string)
+	jmp	general_error
+
 geometry_error:
-    MSG(geometry_error_msg)
-    jmp stop
+    MSG(geometry_error_string)
+    jmp general_error
 
 read_error:
-    MSG(read_error_msg)
+    MSG(read_error_string)
+
+general_error:
+	MSG(general_error_string)
 
 stop: jmp stop
 
@@ -252,11 +263,11 @@ _creturn:
     int 0x10
     ret
 
-notification_msg: db 'Booting OS...', 0
-finish_notification_msg: db 'Stage 1 Complete', 0
-read_error_msg: db 'Read error', 0
-geometry_error_msg: db 'Geometry error', 0
-
+notification_string:	db "Booting OS...", 0
+geometry_error_string:	db "Geom", 0
+hd_probe_error_string:	db "Hard Disk", 0
+read_error_string:	db "Read", 0
+general_error_string:	db " Error", 0
 
 times STAGE1_PARTEND-($-$$) db 0
 dw STAGE1_SIGNATURE
