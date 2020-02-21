@@ -10,8 +10,8 @@
 %define STAGE1_DISK_BUFFER      0x7000
 
 %define STAGE2_SECTOR           0x01
-%define STAGE2_SEGMENT          0x800
-%define STAGE2_ADDRESS          0x8000
+%define STAGE2_SEGMENT          0x220
+%define STAGE2_ADDRESS          0x2200
 
 %define ABS(x) (x-_start+0x7c00)
 %macro MSG 1
@@ -29,8 +29,8 @@ nop
 ; Don't change the first jump,
 ; nor start the code anywhere but right after this area.
 times _start+4-$ db 0
+disk_configuration:
 mode: db	0
-disk_address_packet:
 sectors: dd 0
 heads: dd 0
 cylinders: dw 0
@@ -88,13 +88,14 @@ main:
     jz chs_mode
 
 lba_mode:
+    mov [mode], byte 0x1
     ; store DAP in stack in reverse order
     push dword 0x0                       ; padding
     push dword STAGE2_SECTOR             ; Location on disk
                                          ; Memory address to read data to: segment:offset
     push word STAGE2_SEGMENT             ; segment
     push word 0x0                        ; offset
-    push word 0x1                        ; Number of sectors to read (1)
+    push word 0x3                        ; Number of sectors to read (1)
     push word 0x10                       ; Reserved byte and Packet Size (16 bytes)
 
     ;   BIOS call "INT 0x13 Function 0x42" to read sectors from disk into memory
@@ -109,16 +110,9 @@ lba_mode:
     int 0x13
 	jc	chs_mode
 
-    jmp copy_buffer
+    jmp stage2_entry
 
 chs_mode:
-
-    ; reset floppy
-    .Reset:
-	mov		ah, 0					; reset floppy disk function
-	int		0x13					; call BIOS
-	jc		.Reset					; If Carry Flag (CF) is set, there was an error. Try resetting again
-
     mov ah, 0x08
     int 0x13
 	jnc	floppy_init
@@ -199,24 +193,14 @@ chs_mode:
     mov es, bx
     xor bx, bx
 
-    mov ax, 0x0201  ; function + number of sectors to read
+    mov ax, 0x0202  ; function + number of sectors to read
     int 0x13
     jc read_error
 
-copy_buffer:
-	; We need to save %cx and %si because the startup code in
-	; stage2 uses them without initializing them.
-    pusha
-    push ds
-
-    mov cx, 0x100
-    mov ds, bx
-    xor si, si
-    xor di, di
-
-    cld
-    pop ds
-    popa
+stage2_entry:
+    ; pass disk configuration address,
+    ; so we wont need to probe disk in stage2 for it
+    mov bx, ABS(mode)
 
     ;jump to stage 2 (which is stage1.5 actually)
     jmp 0x0:STAGE2_ADDRESS
@@ -270,6 +254,7 @@ _creturn:
     int 0x10
     ret
 
+
 times STAGE1_WINDOWS_NT_MAGIC-($-$$) db 0
 nt_magic:
 	dd 0
@@ -283,8 +268,7 @@ probe_values:
 floppy_probe:
     ; Perform floppy probe.
     mov si, (probe_values - 1)
-; 	movw	$ABS(probe_values-1), %si
-;
+
 probe_loop:
     ; reset floppy controller INT 13h AH=0
     xor ax, ax
