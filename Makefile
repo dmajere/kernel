@@ -1,23 +1,37 @@
-kernel.o: kernel.c
-	gcc-i386 -ffreestanding -c $< -o $@
+STAGES=$(wildcard boot/*.asm)
+BOOT=${STAGES:.asm=.bin}
 
-kernel_entry.o: kernel_entry.asm
-	nasm $< -f elf -o $@
+C_SOURCES=$(wildcard kernel/*.c drivers/*.c)
+HEADERS = $(wildcard kernel/*.h drivers/*.h)
+OBJ=${C_SOURCES:.c=.o}
 
-kernel.bin: kernel_entry.o kernel.o
-	ld-i386 -o kernel.bin -Ttext 0x2200 $^ --oformat binary
+KERNEL_OFFSET=0x8000
 
-stage1.bin: stage1.asm
-	nasm -f bin $< -o $@
+hda: os-image
+	qemu os-image
 
-stage2.bin: stage2.asm
-	nasm -f bin $< -o $@
+fda: os-image
+	qemu -fda os-image
 
-boot.bin: stage1.bin stage2.bin kernel.bin
+os-image: boot_sect.bin kernel.bin
 	cat $^ > $@
 
-all: boot.bin
+kernel.bin: kernel/kernel_entry.o ${OBJ}
+	ld-i386 -o $@ -Ttext ${KERNEL_OFFSET} $^ --oformat binary
+
+boot_sect.bin: ${BOOT}
+	cat boot/stage1.bin boot/stage2.bin > $@
+
+%.o : %.asm
+	nasm $< -f elf -o $@
+
+
+%.o: %.c ${HEADERS}
+	gcc-i386 -ffreestanding -c $< -o $@
+
+%.bin : %.asm
+	nasm -f bin $< -o $@
+
 
 clean:
-	rm -rf *.bin
-	rm -rf *.o
+	rm -f boot/*.bin kernel/*.o drivers/*.o *.o *.bin os-image
