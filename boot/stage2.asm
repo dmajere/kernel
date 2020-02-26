@@ -14,6 +14,8 @@
 %define STACKOFF (0x2000 - 0x10)
 %define VIDEO_MEMORY 0xb8000
 %define WHITE_ON_BLACK 0x0f
+; Kernel size is set during make, based on kernel.bin size
+; %define KERNEL_SIZE 0x0b
 %define KERNEL_SECTOR 0x03
 %define KERNEL_OFFSET 0x8000
 
@@ -67,7 +69,7 @@ lba_mode:
                                          ; Memory address to read data to: segment:offset
     push word 0x0                        ; segment
     push word KERNEL_OFFSET              ; offset
-    push word 0x1                        ; Number of sectors to read (1)
+    push word KERNEL_SIZE                        ; Number of sectors to read (1)
     push word 0x10                       ; Reserved byte and Packet Size (16 bytes)
 
     ;   BIOS call "INT 0x13 Function 0x42" to read sectors from disk into memory
@@ -117,7 +119,8 @@ chs_mode:
     xor bx, bx
     mov es, bx
     mov bx, KERNEL_OFFSET
-    mov ax, 0x0201                  ; function + number of sectors to read
+    mov ah, 0x02                    ; function
+    mov al, KERNEL_SIZE             ; number of sectors to read
     int 0x13
 
 exec_kernel:
