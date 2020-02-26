@@ -1,3 +1,6 @@
+#include <stdbool.h>
+#include <kernel/types.h>
+#include <kernel/string.h>
 #include <kernel/asm.h>
 #include <kernel/screen.h>
 
@@ -33,8 +36,32 @@ int verticaltab(const int offset) {
     return offset + 2 * MAX_COLS;
 }
 
+void eraserow(const int row) {
+    // int cursor = getcursor();
+    for (int c = 0; c < MAX_COLS; c ++)
+        print_char(' ', row, c, 0);
+    // setcursor(cursor);
+}
+
+void scrollup() {
+    char *dst = (char *) VGA_DMA_ADDRESS;
+    char *src = (char *) VGA_DMA_ADDRESS + 2 * MAX_COLS;
+    size_t length = 2 * MAX_COLS * (MAX_ROWS - 1);
+    memcpy(dst, src, length);
+}
+
+int handle_scrolling(int offset) {
+    int framelimit = 2 * MAX_COLS * MAX_ROWS;
+    if (offset >= framelimit) {
+        scrollup();
+        eraserow(MAX_ROWS - 1);
+        offset = get_offset(MAX_ROWS - 1, 0);
+    }
+    return offset;
+}
 void print_char(const char c, const int row, const int col, char attr)
 {
+    bool printable = false;
     char *memory = (char *) VGA_DMA_ADDRESS;
     if (!attr)
         attr = WHITE_ON_BLACK;
@@ -66,14 +93,16 @@ void print_char(const char c, const int row, const int col, char attr)
             offset = verticaltab(offset);
             break;
         case '\0': return;
-        default: {
-            memory[offset++] = c;
-            memory[offset++] = attr;
-        }
+        default: printable=true; break;
     }
-    // offset = handle_scrolling(offset);
+    offset = handle_scrolling(offset);
+    if (printable) {
+        memory[offset++] = c;
+        memory[offset++] = attr;
+    }
     setcursor(offset);
 }
+
 
 void clear_screen()
 {

@@ -1,4 +1,3 @@
-
 #define VGA_DMA_ADDRESS 0xb8000
 
 #define MAX_COLS 80

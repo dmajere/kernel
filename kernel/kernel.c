@@ -1,35 +1,26 @@
 #include <kernel/screen.h>
 #include <kernel/stdio.h>
+#include <kernel/string.h>
+
+void erase(const int row) {
+    int cursor = getcursor();
+    for (int c = 0; c < MAX_COLS; c ++)
+        print_char(' ', row, c, 0);
+    setcursor(cursor);
+}
+
+void scroll() {
+    char *dst = (char *) VGA_DMA_ADDRESS;
+    char *src = (char *) VGA_DMA_ADDRESS + 2 * MAX_COLS;
+    size_t length = 2 * MAX_COLS * (MAX_ROWS - 1);
+    memcpy(dst, src, length);
+}
 
 void main() {
-    //FRAMEBUFFER_POS = 0;
-    // *video_memory = 'X';
-
     clear_screen();
-    print_char('X', 0, 0, WHITE_ON_BLACK);
-    print_char('X', 0, 79, WHITE_ON_BLACK);
-    print_char('X', 24, 0, WHITE_ON_BLACK);
-    print_char('X', 24, 79, WHITE_ON_BLACK);
-
     setcursor(0);
 
-    // // Tests
-    kprintf("No special chars line ");
-    kprintf("And another one");
-    kprintf("\n");
-    kprintf("Testing carriage return");
-    kprintf("\rWorking\n");
-    kprintf("Horizontal\ttab\n");
-    kprintf("Vertical\vtab\n");
-    kprintf("From\ffeed\n");
-    kprintf("Backspace \bline\n");
-    kprintf("\bBackspace in front\n");
-    kprintf("Zero\0line");
-    kprintf("\n");
-    kprintf("single: \', double: \", backslash \\, question: \?, alert: \a\n");
-
-    char c = 'B';
-    kprintf("print char %c\n", c);
-    int digit = 10;
-    kprintf("print digit %d\n", digit);
+    for (int i = 0; i < 2 * MAX_ROWS; i++) {
+        kprintf("Line: %c\n", i + '0');
+    }
 }

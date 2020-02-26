@@ -6,13 +6,13 @@
 
 int kprintf(const char *format, ...)
 {
-
     va_list args;
     char *buf;
 
     va_start(args, format);
     vsnprintf(buf, INT_MAX, format, args);
     va_end(args);
+
     return printk(buf);
 }
 
@@ -31,9 +31,12 @@ int kprintat(const int row, const int col, const char *format, ...)
     va_list args;
     char *buf;
 
-    setcursor(get_offset(row, col));
+    if (row >= 0 && col >= 0)
+        setcursor(get_offset(row, col));
+
     va_start(args, format);
     vsnprintf(buf, INT_MAX, format, args);
     va_end(args);
+
     return printk(buf);
 }
